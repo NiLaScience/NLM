@@ -1,0 +1,10 @@
+# Core dependencies for NLM (Natural Language Model) implementation
+torch>=2.0.0
+numpy>=1.20.0
+einops>=0.6.0
+regex>=2022.0.0
+
+# Optional dependencies
+matplotlib>=3.5.0  # For plotting training curves
+wandb              # For experiment tracking (optional)
+
