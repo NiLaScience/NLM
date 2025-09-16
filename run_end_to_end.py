@@ -44,12 +44,12 @@ from min_lm.transformer import (
 EOT = "<|endoftext|>"
 
 # Default paths
-DATA_DIR = Path("NLM/data")
-ANC_DIR = Path("NLM/ancients")
-TOKENIZER_DIR = Path("NLM/tokenizers")
-TOKENIZED_DIR = Path("NLM/tokenized_data")
-CHECKPOINT_DIR = Path("NLM/checkpoints")
-OUTPUT_DIR = Path("NLM/outputs")
+DATA_DIR = Path("data")
+ANC_DIR = Path("ancients")
+TOKENIZER_DIR = Path("tokenizers")
+TOKENIZED_DIR = Path("tokenized_data")
+CHECKPOINT_DIR = Path("checkpoints")
+OUTPUT_DIR = Path("outputs")
 
 TINYSTORIES_TRAIN_URL = "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStoriesV2-GPT4-train.txt"
 TINYSTORIES_VALID_URL = "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStoriesV2-GPT4-valid.txt"
