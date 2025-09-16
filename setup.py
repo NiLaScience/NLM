@@ -51,6 +51,13 @@ setup(
             "nlm-tokenize=min_lm.scripts.tokenize:main",
             "nlm-train=min_lm.scripts.train:main",
             "nlm-generate=min_lm.scripts.generate:main",
+            "nlm-run=NLM.run_end_to_end:main",
         ],
     },
 )
+
+
+
+
+
+

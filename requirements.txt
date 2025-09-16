@@ -5,6 +5,12 @@ einops>=0.6.0
 regex>=2022.0.0
 
 # Optional dependencies
-matplotlib>=3.5.0  # For plotting training curves
+matplotlib>=3.5.0  # For plotting training curves (optional)
 wandb              # For experiment tracking (optional)
+
+
+
+
+
+
 

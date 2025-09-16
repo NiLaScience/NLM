@@ -27,7 +27,8 @@ class TransformerBlock(nn.Module):
     """
     def __init__(self, d_model: int, num_heads: int, d_ff: int, max_seq_len: int, rope_theta: float,
                  device: torch.device | None = None, dtype: torch.dtype | None = None,
-                 use_rope: bool = True, disable_rmsnorm: bool = False, use_swiglu: bool = True, post_norm: bool = False):
+                 use_rope: bool = True, disable_rmsnorm: bool = False, use_swiglu: bool = True, post_norm: bool = False,
+                 use_flash_attention: bool = False):
         super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
@@ -39,7 +40,16 @@ class TransformerBlock(nn.Module):
         self.post_norm = post_norm
         self.disable_rmsnorm = disable_rmsnorm
 
-        self.attention = MultiHeadSelfAttention(d_model, num_heads, max_seq_len, rope_theta, use_rope=use_rope, device=device, dtype=dtype)
+        self.attention = MultiHeadSelfAttention(
+            d_model,
+            num_heads,
+            max_seq_len,
+            rope_theta,
+            use_rope=use_rope,
+            device=device,
+            dtype=dtype,
+            use_flash_attention=use_flash_attention,
+        )
         self.ffn = SwiGLU(d_model, d_ff, device=device, dtype=dtype) if use_swiglu else SiLUFFN(d_model, d_ff, device=device, dtype=dtype)
         self.norm1 = nn.Identity() if disable_rmsnorm else RMSNorm(d_model, device=device, dtype=dtype)
         self.norm2 = nn.Identity() if disable_rmsnorm else RMSNorm(d_model, device=device, dtype=dtype)
@@ -100,7 +110,7 @@ class TransformerLM(nn.Module):
     def __init__(self, vocab_size: int, context_length: int, d_model: int, num_layers: int, num_heads: int, d_ff: int, rope_theta: float,
                  device: torch.device | None = None, dtype: torch.dtype | None = None,
                  use_rope: bool = True, disable_rmsnorm: bool = False, use_swiglu: bool = True, post_norm: bool = False,
-                 use_checkpoint: bool = False):
+                 use_checkpoint: bool = False, use_flash_attention: bool = False):
         super().__init__()
         self.vocab_size = vocab_size
         self.context_length = context_length
@@ -114,10 +124,20 @@ class TransformerLM(nn.Module):
         self.token_embedding = Embedding(vocab_size, d_model, device=device, dtype=dtype)
         self.layers = nn.ModuleList([
             TransformerBlock(
-                d_model, num_heads, d_ff, context_length, rope_theta,
-                device=device, dtype=dtype,
-                use_rope=use_rope, disable_rmsnorm=disable_rmsnorm, use_swiglu=use_swiglu, post_norm=post_norm
-            ) for _ in range(num_layers)
+                d_model,
+                num_heads,
+                d_ff,
+                context_length,
+                rope_theta,
+                device=device,
+                dtype=dtype,
+                use_rope=use_rope,
+                disable_rmsnorm=disable_rmsnorm,
+                use_swiglu=use_swiglu,
+                post_norm=post_norm,
+                use_flash_attention=use_flash_attention,
+            )
+            for _ in range(num_layers)
         ])
         self.norm = nn.Identity() if disable_rmsnorm else RMSNorm(d_model, device=device, dtype=dtype)
         from .modules import Linear

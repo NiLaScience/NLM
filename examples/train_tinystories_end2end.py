@@ -10,7 +10,6 @@ This script:
 """
 
 import os
-import sys
 import time
 import urllib.request
 import numpy as np
@@ -18,11 +17,8 @@ import torch
 import json
 from pathlib import Path
 
-# Add the parent directory to sys.path to import NLM modules
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from min_lm.tokenization.bpe import BPETokenizer
-from min_lm.transformer import (
+from NLM.min_lm.tokenization.bpe import BPETokenizer
+from NLM.min_lm.transformer import (
     TransformerLM, AdamW, cross_entropy_loss, get_batch,
     get_lr_cosine_schedule, gradient_clipping, save_checkpoint,
     generate
@@ -59,11 +55,11 @@ CONFIG = {
 }
 
 # Paths
-DATA_DIR = Path("data")
-TOKENIZER_DIR = Path("tokenizers")
-TOKENIZED_DIR = Path("tokenized_data")
-CHECKPOINT_DIR = Path("checkpoints")
-OUTPUT_DIR = Path("outputs")
+DATA_DIR = Path("NLM/data")
+TOKENIZER_DIR = Path("NLM/tokenizers")
+TOKENIZED_DIR = Path("NLM/tokenized_data")
+CHECKPOINT_DIR = Path("NLM/checkpoints")
+OUTPUT_DIR = Path("NLM/outputs")
 
 # Dataset URLs
 TINYSTORIES_TRAIN_URL = "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStoriesV2-GPT4-train.txt"
@@ -85,9 +81,6 @@ def download_file(url, dest_path):
     print()  # New line after download
 
 
-# No longer needed - files are direct .txt files
-
-
 def step1_download_dataset():
     """Download TinyStories dataset if not already present."""
     print("\n" + "="*80)
@@ -99,13 +92,13 @@ def step1_download_dataset():
     train_txt = DATA_DIR / "TinyStoriesV2-GPT4-train.txt"
     valid_txt = DATA_DIR / "TinyStoriesV2-GPT4-valid.txt"
     
-    # Download training data (direct .txt file, no extraction needed)
+    # Download training data
     if not train_txt.exists():
         download_file(TINYSTORIES_TRAIN_URL, train_txt)
     else:
         print(f"Training data already exists at {train_txt}")
     
-    # Download validation data (direct .txt file, no extraction needed)
+    # Download validation data
     if not valid_txt.exists():
         download_file(TINYSTORIES_VALID_URL, valid_txt)
     else:
@@ -413,7 +406,7 @@ def step5_generate_samples(model=None, checkpoint_path=None):
     
     # Prompts to test
     prompts = [
-        "",  # Unconditional generation
+        "The",  # Start with simple word instead of empty
         "Once upon a time",
         "The little girl",
         "One day, a cat",
@@ -431,10 +424,7 @@ def step5_generate_samples(model=None, checkpoint_path=None):
             f.write("-" * 40 + "\n")
             
             # Encode prompt
-            if prompt:
-                prompt_ids = tokenizer.encode(prompt)
-            else:
-                prompt_ids = []
+            prompt_ids = tokenizer.encode(prompt)
             
             # Generate
             output_ids = generate(
@@ -458,9 +448,9 @@ def step5_generate_samples(model=None, checkpoint_path=None):
 
 
 def main():
-    """Run the complete end-to-end pipeline."""
+    """Run the complete end-to-end pipeline for TinyStories only."""
     print("="*80)
-    print("NLM End-to-End Training Pipeline for TinyStories")
+    print("NLM TinyStories End-to-End Training Pipeline")
     print("="*80)
     
     # Step 1: Download dataset
@@ -490,3 +480,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

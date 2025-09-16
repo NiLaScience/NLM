@@ -26,11 +26,17 @@ NLM/min_lm/
 └── __init__.py
 ```
 
+Additional top-level items:
+- `NLM/run_end_to_end.py` (exposed as `nlm-run`)
+- `NLM/examples/` for example scripts
+- `NLM/ancients/` for dataset preparation utilities
+- `NLM/docs/` for documentation
+
 ## Setup
 
 ```bash
-pip install torch numpy einops regex matplotlib  # core deps
-pip install wandb  # optional, for experiment tracking
+# Install (editable mode recommended during development)
+pip install -e .[viz]
 ```
 
 ## Quick Start
@@ -54,22 +60,17 @@ python -m NLM.min_lm.scripts.tokenize \
   --output_dir data/tokenized/
 ```
 
-### 3. Train the model
+### 3. Train the model (one command end-to-end)
 
 ```bash
-python -m NLM.min_lm.scripts.train \
-  --train_tokens data/tokenized/train.npy \
-  --val_tokens data/tokenized/valid.npy \
-  --vocab_size 32000 \
-  --context_length 1024 \
-  --batch_size 32 \
-  --d_model 768 \
-  --num_layers 12 \
-  --num_heads 12 \
-  --lr_max 3e-4 \
-  --max_iters 100000 \
-  --device cuda \
-  --checkpoint_path checkpoints/model.pt
+# TinyStories only (download, tokenize, train, generate)
+nlm-run
+
+# With Ancients mixed in (40% share), and flash attention if available
+nlm-run --with_ancients --ancient_share 0.4 --flash_attention
+
+# Control dataset size (approximate words) for the mixed dataset
+nlm-run --with_ancients --ancient_share 0.5 --target_total_words 200000000
 ```
 
 ### 4. Generate text
@@ -83,6 +84,16 @@ python -m NLM.min_lm.scripts.generate \
   --max_tokens 100 \
   --temperature 0.8
 ```
+
+## CLI Overview
+
+- `nlm-run`: end-to-end pipeline with flags for ancients mixing and flash attention
+  - `--with_ancients`: include Ancient texts (download/clean/mix)
+  - `--ancient_share 0.4`: approximate share of ancients in mixed dataset
+  - `--target_total_words N`: cap mixed dataset size (approximate)
+  - Training flags: `--batch_size`, `--total_tokens`, `--d_model`, `--num_layers`, `--num_heads`, `--d_ff`, `--flash_attention`, etc.
+
+- Low-level scripts remain available under `min_lm.scripts.*` for custom workflows.
 
 ## Library Usage
 

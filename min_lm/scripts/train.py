@@ -153,6 +153,7 @@ def main():
     parser.add_argument("--no_rope", action="store_true", help="Disable RoPE (No position embeddings)")
     parser.add_argument("--silu_ffn", action="store_true", help="Use SiLU FFN (d_ff=4*d_model) instead of SwiGLU")
     parser.add_argument("--checkpoint_activations", action="store_true", help="Enable activation checkpointing to reduce memory")
+    parser.add_argument("--flash_attention", action="store_true", help="Use PyTorch SDPA/Flash Attention if available")
 
     # Optimizer & schedule
     parser.add_argument("--lr_max", type=float, default=3e-4)
@@ -238,6 +239,7 @@ def main():
         use_swiglu=not args.silu_ffn,
         post_norm=args.post_norm,
         use_checkpoint=args.checkpoint_activations,
+        use_flash_attention=args.flash_attention,
     )
     model.to(device)
 

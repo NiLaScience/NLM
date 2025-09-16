@@ -1,6 +1,7 @@
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from einops import einsum, rearrange
 
 from .modules import Linear
@@ -102,7 +103,7 @@ class MultiHeadSelfAttention(nn.Module):
         device: Torch device for computations
         dtype: Data type for parameters
     """
-    def __init__(self, d_model: int, num_heads: int, max_seq_len: int | None = None, rope_theta: float | None = None, use_rope: bool = True, device: torch.device | None = None, dtype: torch.dtype | None = None):
+    def __init__(self, d_model: int, num_heads: int, max_seq_len: int | None = None, rope_theta: float | None = None, use_rope: bool = True, device: torch.device | None = None, dtype: torch.dtype | None = None, use_flash_attention: bool = False):
         super().__init__()
         assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
         self.d_model = d_model
@@ -110,6 +111,7 @@ class MultiHeadSelfAttention(nn.Module):
         self.use_rope = use_rope
         self.device = device
         self.dtype = dtype
+        self.use_flash_attention = use_flash_attention
 
         self.d_k = d_model // num_heads
         self.WQ = Linear(d_model, d_model, device=device, dtype=dtype)
@@ -146,8 +148,16 @@ class MultiHeadSelfAttention(nn.Module):
             assert token_positions is not None, "token_positions must be provided when use_rope is True"
             Q = self.rope(Q, token_positions)
             K = self.rope(K, token_positions)
-        output = scaled_dot_product_attention(Q, K, V, attn_mask=mask)
-        output = rearrange(output, "b h s d -> b s (h d)")
+        if self.use_flash_attention:
+            # Prefer PyTorch's native scaled_dot_product_attention, which uses Flash/SDPA kernels when available
+            if mask is None:
+                attn_out = F.scaled_dot_product_attention(Q, K, V, attn_mask=None, is_causal=True)
+            else:
+                # If a mask is provided, rely on it and disable internal causal masking
+                attn_out = F.scaled_dot_product_attention(Q, K, V, attn_mask=mask, is_causal=False)
+        else:
+            attn_out = scaled_dot_product_attention(Q, K, V, attn_mask=mask)
+        output = rearrange(attn_out, "b h s d -> b s (h d)")
         return self.WO(output)
 
 
