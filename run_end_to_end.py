@@ -17,6 +17,9 @@ Examples:
   # Include ancients with 40% share and cap total words ~200M words
   python -m NLM.run_end_to_end --with_ancients --ancient_share 0.4 --target_total_words 200000000
 
+  # Force retraining tokenizer and restart training from scratch
+  python -m NLM.run_end_to_end --overwrite_tokenizer --overwrite_train
+
 """
 
 import argparse
@@ -34,7 +37,7 @@ from min_lm.tokenization.bpe import BPETokenizer
 from min_lm.transformer import (
     TransformerLM, AdamW, cross_entropy_loss, get_batch,
     get_lr_cosine_schedule, gradient_clipping, save_checkpoint,
-    generate,
+    load_checkpoint, generate,
 )
 
 
@@ -52,10 +55,10 @@ TINYSTORIES_TRAIN_URL = "https://huggingface.co/datasets/roneneldan/TinyStories/
 TINYSTORIES_VALID_URL = "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStoriesV2-GPT4-valid.txt"
 
 
-def download_file(url: str, dest_path: Path) -> None:
+def download_file(url: str, dest_path: Path, overwrite: bool = False) -> None:
     import urllib.request
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    if dest_path.exists():
+    if dest_path.exists() and not overwrite:
         print(f"[download] exists: {dest_path}")
         return
     print(f"[download] {url} -> {dest_path}")
@@ -73,25 +76,38 @@ def ensure_dirs():
         p.mkdir(parents=True, exist_ok=True)
 
 
-def step_download_tinystories():
+def step_download_tinystories(overwrite: bool = False):
     print("\n== Step 1: Download TinyStories ==")
     train_txt = DATA_DIR / "TinyStoriesV2-GPT4-train.txt"
     valid_txt = DATA_DIR / "TinyStoriesV2-GPT4-valid.txt"
-    download_file(TINYSTORIES_TRAIN_URL, train_txt)
-    download_file(TINYSTORIES_VALID_URL, valid_txt)
+    download_file(TINYSTORIES_TRAIN_URL, train_txt, overwrite)
+    download_file(TINYSTORIES_VALID_URL, valid_txt, overwrite)
     return train_txt, valid_txt
 
 
-def step_optionally_prepare_ancients(with_ancients: bool, request_delay: float) -> Path | None:
+def step_optionally_prepare_ancients(with_ancients: bool, request_delay: float, overwrite: bool = False) -> Path | None:
     if not with_ancients:
         return None
+    
     print("\n== Step 2: Download Ancient texts via Gutendex ==")
+    dataset_path = ANC_DIR / "ancient_texts_dataset.txt"
+    
+    # Check if final dataset exists
+    if dataset_path.exists() and not overwrite:
+        print(f"[ancients] using existing: {dataset_path}")
+        return dataset_path
+    
     raw_dir = ANC_DIR / "raw"
     manifest = raw_dir / "manifest.csv"
-    # Use bundled downloader
-    from ancients.download_ancient_gutenberg import main as dl_main  # type: ignore
-    sys.argv = ["download_ancient_gutenberg.py", "--out_dir", str(raw_dir), "--manifest", str(manifest)]
-    dl_main()
+    
+    # Check if raw downloads exist
+    if manifest.exists() and not overwrite:
+        print(f"[ancients] raw texts already downloaded: {manifest}")
+    else:
+        # Use bundled downloader
+        from ancients.download_ancient_gutenberg import main as dl_main  # type: ignore
+        sys.argv = ["download_ancient_gutenberg.py", "--out_dir", str(raw_dir), "--manifest", str(manifest)]
+        dl_main()
 
     print("Cleaning Gutenberg texts...")
     cleaned_dir = ANC_DIR / "clean"
@@ -101,7 +117,6 @@ def step_optionally_prepare_ancients(with_ancients: bool, request_delay: float) 
     clean_main()
 
     print("Building ancient dataset (chunked with EOT separators)...")
-    dataset_path = ANC_DIR / "ancient_texts_dataset.txt"
     from ancients.build_ancient_dataset import main as build_main  # type: ignore
     sys.argv = [
         "build_ancient_dataset.py",
@@ -114,8 +129,8 @@ def step_optionally_prepare_ancients(with_ancients: bool, request_delay: float) 
     return dataset_path
 
 
-def step_train_tokenizer(vocab_size: int, train_corpus: Path, vocab_path: Path, merges_path: Path) -> None:
-    if vocab_path.exists() and merges_path.exists():
+def step_train_tokenizer(vocab_size: int, train_corpus: Path, vocab_path: Path, merges_path: Path, overwrite: bool = False) -> None:
+    if vocab_path.exists() and merges_path.exists() and not overwrite:
         print(f"[tokenizer] using existing: {vocab_path}, {merges_path}")
         return
     print("\n== Step 3: Train tokenizer ==")
@@ -139,29 +154,38 @@ def _tokenize_to_npy(input_txt: Path, tokenizer: BPETokenizer, output_npy: Path)
     return int(arr.shape[0])
 
 
-def step_tokenize_datasets(train_txt: Path, valid_txt: Path, vocab_path: Path, merges_path: Path) -> tuple[Path, Path]:
+def step_tokenize_datasets(train_txt: Path, valid_txt: Path, vocab_path: Path, merges_path: Path, overwrite: bool = False) -> tuple[Path, Path]:
     print("\n== Step 4: Tokenize datasets ==")
     tokenizer = BPETokenizer.from_files(str(vocab_path), str(merges_path), special_tokens=[EOT])
     train_out = TOKENIZED_DIR / (train_txt.stem + ".npy")
     valid_out = TOKENIZED_DIR / (valid_txt.stem + ".npy")
-    if not train_out.exists():
+    
+    if not train_out.exists() or overwrite:
         ntr = _tokenize_to_npy(train_txt, tokenizer, train_out)
         print(f"  train tokens: {ntr:,}")
     else:
         print(f"  exists: {train_out}")
-    if not valid_out.exists():
+        
+    if not valid_out.exists() or overwrite:
         nva = _tokenize_to_npy(valid_txt, tokenizer, valid_out)
         print(f"  valid tokens: {nva:,}")
     else:
         print(f"  exists: {valid_out}")
+        
     return train_out, valid_out
 
 
-def step_maybe_mix_datasets(with_ancients: bool, ancient_share: float, target_total_words: int | None, ancient_dataset: Path | None, ts_train: Path, ts_valid: Path) -> Path:
+def step_maybe_mix_datasets(with_ancients: bool, ancient_share: float, target_total_words: int | None, 
+                          ancient_dataset: Path | None, ts_train: Path, ts_valid: Path, overwrite: bool = False) -> Path:
     if not with_ancients or ancient_dataset is None:
         return ts_train
     print("\n== Step 2b: Build mixed dataset ==")
     out_mixed = ANC_DIR / "mixed_dataset.txt"
+    
+    if out_mixed.exists() and not overwrite:
+        print(f"[mixed] using existing: {out_mixed}")
+        return out_mixed
+        
     from ancients.build_mixed_dataset import build_mixed  # type: ignore
     build_mixed(ancient_dataset, ts_train, ts_valid, out_mixed, ancient_share, seed=123, target_total_words=target_total_words)
     return out_mixed
@@ -199,6 +223,7 @@ def step_train_model(
     total_tokens: int,
     flash_attention: bool,
     checkpoint_path: Path,
+    overwrite: bool = False,
 ):
     print("\n== Step 5: Train model ==")
     # Device
@@ -244,17 +269,34 @@ def step_train_model(
         use_flash_attention=flash_attention,
     ).to(device)
 
-    # Initial val loss
-    print("[eval] measuring initial validation loss...")
-    init_val = evaluate_loss(model, val_tokens, batch_size, context_length, device, num_batches=20)
-    print(f"  initial val loss: {init_val:.4f}")
-
     # Optim
     optimizer = AdamW(model.parameters(), lr=lr_max, betas=(0.9, 0.95), weight_decay=weight_decay)
+    
+    # Check for existing checkpoint
+    start_iter = 0
+    if checkpoint_path.exists() and not overwrite:
+        print(f"[checkpoint] loading from: {checkpoint_path}")
+        try:
+            start_iter = load_checkpoint(model, optimizer, str(checkpoint_path))
+            print(f"[checkpoint] resumed from iter {start_iter}")
+        except Exception as e:
+            print(f"[checkpoint] failed to load, starting fresh: {e}")
+            start_iter = 0
+    
+    # Skip training if already completed
+    if start_iter >= max_iters:
+        print(f"[train] already completed {start_iter} iterations, skipping training")
+        return model, device
+
+    # Initial val loss (only if starting fresh)
+    if start_iter == 0:
+        print("[eval] measuring initial validation loss...")
+        init_val = evaluate_loss(model, val_tokens, batch_size, context_length, device, num_batches=20)
+        print(f"  initial val loss: {init_val:.4f}")
 
     # Train loop
     start_time = time.time()
-    for it in range(max_iters):
+    for it in range(start_iter, max_iters):
         lr_t = get_lr_cosine_schedule(it, lr_max, lr_min, warmup_iters, cosine_cycle_iters)
         for g in optimizer.param_groups:
             g["lr"] = lr_t
@@ -273,7 +315,7 @@ def step_train_model(
                 train_loss = float(loss.item())
                 val_loss = evaluate_loss(model, val_tokens, batch_size, context_length, device, num_batches=20)
             elapsed = time.time() - start_time
-            tokens_seen = (it + 1) * batch_size * context_length
+            tokens_seen = (it + 1 - start_iter) * batch_size * context_length
             tok_per_s = tokens_seen / max(elapsed, 1e-9)
             print(
                 f"iter {it+1:>7d}/{max_iters} | lr {lr_t:.3e} | train {train_loss:.4f} | val {val_loss:.4f} | tok/s {tok_per_s:,.0f}"
@@ -334,6 +376,15 @@ def main():
     p.add_argument("--target_total_words", type=int, default=None, help="Approximate total words for mixed dataset (controls size)")
     p.add_argument("--request_delay", type=float, default=0.3, help="Delay between Gutendex requests (seconds)")
 
+    # Overwrite flags
+    p.add_argument("--overwrite_download", action="store_true", help="Force re-download of TinyStories even if exists")
+    p.add_argument("--overwrite_ancient", action="store_true", help="Force re-download and rebuild of ancient texts")
+    p.add_argument("--overwrite_mixed", action="store_true", help="Force rebuild of mixed dataset")
+    p.add_argument("--overwrite_tokenizer", action="store_true", help="Force retrain tokenizer even if exists")
+    p.add_argument("--overwrite_tokenize", action="store_true", help="Force re-tokenization even if .npy files exist")
+    p.add_argument("--overwrite_train", action="store_true", help="Start training from scratch, ignore existing checkpoints")
+    p.add_argument("--overwrite_all", action="store_true", help="Overwrite everything (implies all other overwrite flags)")
+
     # Tokenizer
     p.add_argument("--vocab_size", type=int, default=10000)
 
@@ -344,7 +395,7 @@ def main():
     p.add_argument("--num_heads", type=int, default=16)
     p.add_argument("--d_ff", type=int, default=1344)
     p.add_argument("--rope_theta", type=float, default=10000.0)
-    p.add_argument("--flash_attention", action="store_true")
+    p.add_argument("--flash_attention", action="store_true", help="Enable Flash Attention (requires CUDA and PyTorch >= 2.0)")
 
     # Train
     p.add_argument("--batch_size", type=int, default=64)
@@ -357,27 +408,37 @@ def main():
 
     args = p.parse_args()
 
+    # Handle overwrite_all
+    if args.overwrite_all:
+        args.overwrite_download = True
+        args.overwrite_ancient = True
+        args.overwrite_mixed = True
+        args.overwrite_tokenizer = True
+        args.overwrite_tokenize = True
+        args.overwrite_train = True
+
     ensure_dirs()
 
     # 1) TinyStories download
-    ts_train_txt, ts_valid_txt = step_download_tinystories()
+    ts_train_txt, ts_valid_txt = step_download_tinystories(args.overwrite_download)
 
     # 2) Ancients (optional)
-    ancient_dataset = step_optionally_prepare_ancients(args.with_ancients, args.request_delay)
+    ancient_dataset = step_optionally_prepare_ancients(args.with_ancients, args.request_delay, args.overwrite_ancient)
 
     # 2b) Mix (optional)
     train_corpus = ts_train_txt
     if args.with_ancients and ancient_dataset is not None:
-        mixed = step_maybe_mix_datasets(True, args.ancient_share, args.target_total_words, ancient_dataset, ts_train_txt, ts_valid_txt)
+        mixed = step_maybe_mix_datasets(True, args.ancient_share, args.target_total_words, ancient_dataset, 
+                                      ts_train_txt, ts_valid_txt, args.overwrite_mixed)
         train_corpus = mixed
 
     # 3) Tokenizer
     vocab_path = TOKENIZER_DIR / "tinystories_vocab.json"
     merges_path = TOKENIZER_DIR / "tinystories_merges.txt"
-    step_train_tokenizer(args.vocab_size, train_corpus, vocab_path, merges_path)
+    step_train_tokenizer(args.vocab_size, train_corpus, vocab_path, merges_path, args.overwrite_tokenizer)
 
     # 4) Tokenize
-    train_npy, valid_npy = step_tokenize_datasets(train_corpus, ts_valid_txt, vocab_path, merges_path)
+    train_npy, valid_npy = step_tokenize_datasets(train_corpus, ts_valid_txt, vocab_path, merges_path, args.overwrite_tokenize)
 
     # 5) Train
     ckpt_path = CHECKPOINT_DIR / ("mixed_model.pt" if args.with_ancients else "tinystories_model.pt")
@@ -400,6 +461,7 @@ def main():
         args.total_tokens,
         args.flash_attention,
         ckpt_path,
+        args.overwrite_train,
     )
 
     # 6) Generate
@@ -409,5 +471,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
