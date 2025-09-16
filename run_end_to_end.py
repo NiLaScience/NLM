@@ -282,7 +282,7 @@ def step_train_model(
     if checkpoint_path.exists() and not overwrite:
         print(f"[checkpoint] loading from: {checkpoint_path}")
         try:
-            start_iter = load_checkpoint(model, optimizer, str(checkpoint_path))
+            start_iter = load_checkpoint(str(checkpoint_path), model, optimizer)
             print(f"[checkpoint] resumed from iter {start_iter}")
         except Exception as e:
             print(f"[checkpoint] failed to load, starting fresh: {e}")
