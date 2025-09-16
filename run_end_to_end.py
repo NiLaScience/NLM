@@ -157,7 +157,12 @@ def _tokenize_to_npy(input_txt: Path, tokenizer: BPETokenizer, output_npy: Path)
 def step_tokenize_datasets(train_txt: Path, valid_txt: Path, vocab_path: Path, merges_path: Path, overwrite: bool = False) -> tuple[Path, Path]:
     print("\n== Step 4: Tokenize datasets ==")
     tokenizer = BPETokenizer.from_files(str(vocab_path), str(merges_path), special_tokens=[EOT])
-    train_out = TOKENIZED_DIR / (train_txt.stem + ".npy")
+    
+    # Handle special case for mixed dataset (backward compatibility)
+    if train_txt.stem == "mixed_dataset":
+        train_out = TOKENIZED_DIR / "mixed_tokens.npy"
+    else:
+        train_out = TOKENIZED_DIR / (train_txt.stem + ".npy")
     valid_out = TOKENIZED_DIR / (valid_txt.stem + ".npy")
     
     if not train_out.exists() or overwrite:
