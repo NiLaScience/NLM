@@ -181,19 +181,41 @@ def step_tokenize_datasets(train_txt: Path, valid_txt: Path, vocab_path: Path, m
 
 
 def step_maybe_mix_datasets(with_ancients: bool, ancient_share: float, target_total_words: int | None, 
-                          ancient_dataset: Path | None, ts_train: Path, ts_valid: Path, overwrite: bool = False) -> Path:
+                          ancient_dataset: Path | None, ts_train: Path, ts_valid: Path, overwrite: bool = False) -> tuple[Path, Path]:
     if not with_ancients or ancient_dataset is None:
-        return ts_train
-    print("\n== Step 2b: Build mixed dataset ==")
-    out_mixed = ANC_DIR / "mixed_dataset.txt"
+        return ts_train, ts_valid
+    print("\n== Step 2b: Build mixed datasets (train & valid) ==")
     
-    if out_mixed.exists() and not overwrite:
-        print(f"[mixed] using existing: {out_mixed}")
-        return out_mixed
+    # For backward compatibility, check if old mixed_dataset.txt exists
+    old_mixed = ANC_DIR / "mixed_dataset.txt"
+    out_train = ANC_DIR / "mixed_train.txt"
+    out_valid = ANC_DIR / "mixed_valid.txt"
+    
+    # If new files exist and not overwriting, use them
+    if out_train.exists() and out_valid.exists() and not overwrite:
+        print(f"[mixed] using existing: {out_train}, {out_valid}")
+        return out_train, out_valid
+    
+    # If old mixed file exists but new ones don't, use old approach with TS valid
+    if old_mixed.exists() and not out_train.exists() and not overwrite:
+        print(f"[mixed] using legacy: {old_mixed} (with TinyStories validation)")
+        return old_mixed, ts_valid
         
-    from ancients.build_mixed_dataset import build_mixed  # type: ignore
-    build_mixed(ancient_dataset, ts_train, ts_valid, out_mixed, ancient_share, seed=123, target_total_words=target_total_words)
-    return out_mixed
+    # Build new split datasets
+    ancient_valid = ANC_DIR / "ancients_valid.txt"
+    from ancients.build_mixed_dataset_v2 import build_mixed_splits  # type: ignore
+    build_mixed_splits(
+        ancient_dataset, 
+        ancient_valid,
+        ts_train, 
+        ts_valid, 
+        out_train,
+        out_valid,
+        ancient_share, 
+        seed=123, 
+        target_total_words=target_total_words
+    )
+    return out_train, out_valid
 
 
 @torch.no_grad()
@@ -432,10 +454,10 @@ def main():
 
     # 2b) Mix (optional)
     train_corpus = ts_train_txt
+    valid_corpus = ts_valid_txt
     if args.with_ancients and ancient_dataset is not None:
-        mixed = step_maybe_mix_datasets(True, args.ancient_share, args.target_total_words, ancient_dataset, 
+        train_corpus, valid_corpus = step_maybe_mix_datasets(True, args.ancient_share, args.target_total_words, ancient_dataset, 
                                       ts_train_txt, ts_valid_txt, args.overwrite_mixed)
-        train_corpus = mixed
 
     # 3) Tokenizer
     vocab_path = TOKENIZER_DIR / "tinystories_vocab.json"
@@ -443,7 +465,7 @@ def main():
     step_train_tokenizer(args.vocab_size, train_corpus, vocab_path, merges_path, args.overwrite_tokenizer)
 
     # 4) Tokenize
-    train_npy, valid_npy = step_tokenize_datasets(train_corpus, ts_valid_txt, vocab_path, merges_path, args.overwrite_tokenize)
+    train_npy, valid_npy = step_tokenize_datasets(train_corpus, valid_corpus, vocab_path, merges_path, args.overwrite_tokenize)
 
     # 5) Train
     ckpt_path = CHECKPOINT_DIR / ("mixed_model.pt" if args.with_ancients else "tinystories_model.pt")
