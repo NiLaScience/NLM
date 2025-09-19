@@ -426,7 +426,7 @@ def main():
 
     # Train
     p.add_argument("--batch_size", type=int, default=64)
-    p.add_argument("--total_tokens", type=int, default=327_680_000)
+    p.add_argument("--total_tokens", type=int, default=163_840_000)
     p.add_argument("--lr_max", type=float, default=3e-4)
     p.add_argument("--lr_min", type=float, default=3e-5)
     p.add_argument("--warmup_iters", type=int, default=1000)
