@@ -87,13 +87,105 @@ python -m NLM.min_lm.scripts.generate \
 
 ## CLI Overview
 
-- `nlm-run`: end-to-end pipeline with flags for ancients mixing and flash attention
-  - `--with_ancients`: include Ancient texts (download/clean/mix)
-  - `--ancient_share 0.4`: approximate share of ancients in mixed dataset
-  - `--target_total_words N`: cap mixed dataset size (approximate)
-  - Training flags: `--batch_size`, `--total_tokens`, `--d_model`, `--num_layers`, `--num_heads`, `--d_ff`, `--flash_attention`, etc.
+### `nlm-run` - Complete End-to-End Pipeline
 
-- Low-level scripts remain available under `min_lm.scripts.*` for custom workflows.
+The main entry point that runs the entire pipeline from data download to trained model:
+
+```bash
+nlm-run [options]
+```
+
+#### Data Options
+- `--with_ancients`: Include ancient texts from Project Gutenberg
+- `--ancient_share FLOAT`: Share of ancient words in mixed dataset (default: 0.4, range: 0.0-1.0)
+- `--target_total_words INT`: Approximate total words for mixed dataset size control
+- `--request_delay FLOAT`: Delay between Gutendex API requests in seconds (default: 0.3)
+
+#### Overwrite Flags
+- `--overwrite_download`: Force re-download of TinyStories dataset
+- `--overwrite_ancient`: Force re-download and rebuild of ancient texts
+- `--overwrite_mixed`: Force rebuild of mixed dataset
+- `--overwrite_tokenizer`: Force retrain tokenizer
+- `--overwrite_tokenize`: Force re-tokenization of datasets
+- `--overwrite_train`: Start training from scratch, ignore checkpoints
+- `--overwrite_all`: Overwrite everything (implies all other overwrite flags)
+
+#### Tokenizer Options
+- `--vocab_size INT`: Vocabulary size (default: 10000)
+
+#### Model Architecture
+- `--context_length INT`: Maximum sequence length (default: 256)
+- `--d_model INT`: Model dimension (default: 512)
+- `--num_layers INT`: Number of transformer layers (default: 4)
+- `--num_heads INT`: Number of attention heads (default: 16)
+- `--d_ff INT`: Feed-forward dimension (default: 1344)
+- `--rope_theta FLOAT`: RoPE theta parameter (default: 10000.0)
+- `--flash_attention`: Enable Flash Attention (requires CUDA and PyTorch >= 2.0)
+
+#### Training Options
+- `--batch_size INT`: Training batch size (default: 64)
+- `--total_tokens INT`: Total tokens to train on (default: 163,840,000)
+- `--lr_max FLOAT`: Maximum learning rate (default: 3e-4)
+- `--lr_min FLOAT`: Minimum learning rate (default: 3e-5)
+- `--warmup_iters INT`: Number of warmup iterations (default: 1000)
+- `--weight_decay FLOAT`: Weight decay coefficient (default: 0.1)
+- `--max_grad_norm FLOAT`: Gradient clipping threshold (default: 1.0)
+
+### Low-Level Scripts
+
+For custom workflows, individual components are available:
+
+#### `nlm-train-tokenizer` - Train BPE Tokenizer
+```bash
+nlm-train-tokenizer input_file [options]
+```
+- `input_file`: Path to training corpus
+- `--vocab_size INT`: Maximum vocabulary size (default: 10000)
+- `--output_dir PATH`: Directory to save tokenizer files (default: current directory)
+- `--profile`: Enable profiling
+
+#### `nlm-tokenize` - Tokenize Text Files
+```bash
+nlm-tokenize --inputs file1.txt file2.txt --vocab_path vocab.json --merges_path merges.txt [options]
+```
+- `--inputs`: One or more text files to tokenize
+- `--vocab_path`: Path to vocabulary JSON file
+- `--merges_path`: Path to merges text file
+- `--special_tokens`: Special tokens to reserve (default: ["<|endoftext|>"])
+- `--output_dir`: Directory for output .npy files (default: "tokenized_data")
+- `--output_dtype`: NumPy dtype for tokens (choices: uint16, int32, int64; default: uint16)
+
+#### `nlm-train` - Train Transformer Model
+```bash
+nlm-train --train_tokens train.npy --val_tokens val.npy --vocab_size 10000 [options]
+```
+- `--train_tokens`: Path to training tokens (.npy file)
+- `--val_tokens`: Path to validation tokens (.npy file)
+- `--context_length`: Sequence length (default: 1024)
+- `--batch_size`: Batch size (default: 32)
+- Model architecture flags (same as nlm-run)
+- Training hyperparameter flags (same as nlm-run)
+- `--checkpoint_path`: Path to save/load checkpoints
+- `--resume`: Resume from checkpoint if exists
+- `--device`: Device to use (cpu/cuda/mps, auto-detect if not specified)
+- `--log_to_wandb`: Enable Weights & Biases logging
+- `--log_csv`: Path to write CSV metrics log
+- `--plot_dir`: Directory to save training curve plots
+- `--seed`: Random seed for reproducibility
+
+#### `nlm-generate` - Generate Text
+```bash
+nlm-generate --checkpoint model.pt --vocab_path vocab.json --merges_path merges.txt [options]
+```
+- `--checkpoint`: Path to model checkpoint
+- `--vocab_path`: Path to vocabulary JSON
+- `--merges_path`: Path to merges text file
+- `--prompt`: Prompt text to continue from (default: empty)
+- `--max_tokens`: Maximum tokens to generate (default: 100)
+- `--temperature`: Sampling temperature, 0 for greedy (default: 1.0)
+- `--top_p`: Nucleus sampling threshold (optional)
+- `--num_samples`: Number of samples to generate (default: 1)
+- `--device`: Device to use (cpu/cuda/mps, auto-detect if not specified)
 
 ## Library Usage
 
